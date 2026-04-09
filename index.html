@@ -106,10 +106,33 @@
     font-style: italic;
     transition: color 2s ease;
     text-shadow: 0 0 30px rgba(150, 100, 255, 0.3);
+    pointer-events: none;
   }
 
   #wisdom-text.visible {
     color: rgba(200, 180, 255, 0.85);
+    pointer-events: auto;
+    cursor: context-menu;
+  }
+
+  #copy-toast {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    color: rgba(200, 180, 255, 0.9);
+    font-size: 0.75em;
+    letter-spacing: 0.3em;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    pointer-events: none;
+    text-shadow: 0 0 10px rgba(150, 100, 255, 0.5);
+  }
+
+  #copy-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 
   #ponder-prompt {
@@ -190,6 +213,7 @@
 </div>
 
 <div id="ponder-prompt">click the orb to ponder</div>
+<div id="copy-toast">wisdom copied to clipboard</div>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -677,6 +701,21 @@ window.addEventListener('keyup', e => {
   if (e.code === 'Space') {
     stopPonder();
   }
+});
+
+// ── Copy Wisdom on Right-Click ──
+const copyToast = document.getElementById('copy-toast');
+let toastTimeout = null;
+
+wisdomText.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const text = wisdomText.textContent;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    copyToast.classList.add('show');
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => copyToast.classList.remove('show'), 2000);
+  });
 });
 
 // ── Audio Context for Ambient Hum ──
