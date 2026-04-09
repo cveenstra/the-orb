@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Orb - Ponder Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  @font-face {
+    font-family: 'Mystic';
+    src: local('Georgia');
+  }
+
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: Georgia, 'Times New Roman', serif;
+    cursor: none;
+    user-select: none;
+  }
+
+  #cursor-glow {
+    position: fixed;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1000;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(200,150,255,0.4) 0%, transparent 70%);
+    mix-blend-mode: screen;
+    transition: width 0.3s, height 0.3s;
+  }
+
+  canvas#orb-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+
+  #ui-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  #title {
+    margin-top: 40px;
+    text-align: center;
+    opacity: 0;
+    animation: fadeIn 3s ease forwards 0.5s;
+  }
+
+  #title h1 {
+    font-size: 2.5em;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #ff6ec7, #7b68ee, #00ffcc, #ff6ec7);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 4s ease infinite;
+    text-shadow: none;
+  }
+
+  #title p {
+    color: rgba(180, 160, 220, 0.6);
+    font-size: 0.9em;
+    letter-spacing: 0.5em;
+    margin-top: 8px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+
+  #wisdom-container {
+    margin-bottom: 60px;
+    text-align: center;
+    max-width: 600px;
+    padding: 0 30px;
+  }
+
+  #wisdom-text {
+    font-size: 1.3em;
+    line-height: 1.8;
+    color: rgba(200, 180, 255, 0);
+    font-style: italic;
+    transition: color 2s ease;
+    text-shadow: 0 0 30px rgba(150, 100, 255, 0.3);
+  }
+
+  #wisdom-text.visible {
+    color: rgba(200, 180, 255, 0.85);
+  }
+
+  #ponder-prompt {
+    position: fixed;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(150, 130, 200, 0.4);
+    font-size: 0.75em;
+    letter-spacing: 0.4em;
+    z-index: 10;
+    animation: pulse 3s ease infinite;
+    pointer-events: none;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+  }
+
+  #ponder-depth {
+    position: fixed;
+    top: 20px;
+    right: 30px;
+    z-index: 10;
+    text-align: right;
+    pointer-events: none;
+  }
+
+  #ponder-depth .label {
+    font-size: 0.6em;
+    letter-spacing: 0.3em;
+    color: rgba(150, 130, 200, 0.4);
+    text-transform: uppercase;
+  }
+
+  #ponder-depth .value {
+    font-size: 1.8em;
+    color: rgba(180, 140, 255, 0.7);
+    text-shadow: 0 0 20px rgba(150, 100, 255, 0.4);
+  }
+
+  #ponder-depth .unit {
+    font-size: 0.5em;
+    letter-spacing: 0.2em;
+    color: rgba(150, 130, 200, 0.3);
+  }
+
+  .particle-burst {
+    position: fixed;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<div id="cursor-glow"></div>
+<canvas id="orb-canvas"></canvas>
+
+<div id="ui-layer">
+  <div id="title">
+    <h1>The Orb</h1>
+    <p>ponder simulator</p>
+  </div>
+  <div id="wisdom-container">
+    <div id="wisdom-text"></div>
+  </div>
+</div>
+
+<div id="ponder-depth">
+  <div class="label">ponder depth</div>
+  <div class="value" id="depth-value">0.00</div>
+  <div class="unit">transcendence units</div>
+</div>
+
+<div id="ponder-prompt">click the orb to ponder</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  THE ORB - A Psychedelic Pondering Simulator
+// ═══════════════════════════════════════════════════════
+
+const canvas = document.getElementById('orb-canvas');
+const gl = canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: false });
+
+// ── State ──
+const state = {
+  time: 0,
+  mouseX: 0.5,
+  mouseY: 0.5,
+  ponderLevel: 0,
+  ponderDepth: 0,
+  clicking: false,
+  pondering: false,
+  intensity: 0,
+  orbPulse: 0,
+  wisdomIndex: 0,
+  lastWisdom: -1,
+  colorShift: 0,
+};
+
+// ── Wisdom of the Orb ──
+const wisdoms = [
+  "The orb does not answer.\nIt lets you sit with the question.",
+  "You are not looking at the orb.\nThe orb is looking through you.",
+  "Every color you see\nis a thought you haven't had yet.",
+  "The pondering is the point.\nThere is no arrival.",
+  "What if the orb is just\na very patient mirror?",
+  "The universe is a sphere\ncontemplating its own curvature.",
+  "Deeper. Deeper.\nThe orb approves.",
+  "Time is a flat circle,\nbut the orb is a round sphere.",
+  "You have been pondering\nfor exactly the right amount of time.",
+  "The orb vibrates at the frequency\nof unasked questions.",
+  "Do not seek meaning in the orb.\nSeek the orb in meaning.",
+  "The colors shift because\ntruth refuses to hold still.",
+  "Between one thought and the next,\nthe orb exists.",
+  "You are the orb's dream\nof someone who ponders.",
+  "Gravity is just the orb\npulling you closer to understanding.",
+  "The orb has been waiting\nsince before there were eyes to see it.",
+  "Ponder not what the orb is,\nbut what the orb isn't.",
+  "Your reflection in the orb\nhas its own questions.",
+  "The orb neither grows nor shrinks.\nYou are the variable.",
+  "Some say the orb is ancient.\nThe orb says time is young.",
+  "To truly see the orb,\nclose your eyes. Wait. Open them again.",
+  "The orb contains every color\nthat has ever been lonely.",
+  "Breathe in. The orb breathes with you.\nBreathe out. The orb lets go.",
+  "If you listen carefully,\nthe orb hums in a key\nthat doesn't exist yet.",
+  "The orb is not psychedelic.\nReality is too plain.",
+];
+
+// ── Vertex Shader ──
+const vertexSrc = `
+  attribute vec2 a_position;
+  void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+`;
+
+// ── Fragment Shader ──
+const fragmentSrc = `
+  precision highp float;
+
+  uniform float u_time;
+  uniform vec2 u_resolution;
+  uniform vec2 u_mouse;
+  uniform float u_ponder;
+  uniform float u_intensity;
+  uniform float u_pulse;
+  uniform float u_colorShift;
+
+  #define PI 3.14159265359
+  #define TAU 6.28318530718
+
+  // Simplex-ish noise
+  vec3 mod289(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+  vec2 mod289(vec2 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+  vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+
+  float snoise(vec2 v) {
+    const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                       -0.577350269189626, 0.024390243902439);
+    vec2 i  = floor(v + dot(v, C.yy));
+    vec2 x0 = v - i + dot(i, C.xx);
+    vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    i = mod289(i);
+    vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+    m = m*m; m = m*m;
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+    m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+    vec3 g;
+    g.x = a0.x * x0.x + h.x * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+  }
+
+  float fbm(vec2 p) {
+    float f = 0.0;
+    float w = 0.5;
+    for (int i = 0; i < 6; i++) {
+      f += w * snoise(p);
+      p *= 2.1;
+      w *= 0.5;
+    }
+    return f;
+  }
+
+  // Psychedelic color palette
+  vec3 palette(float t, float shift) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.00 + shift * 0.1, 0.33 + shift * 0.05, 0.67 - shift * 0.05);
+    return a + b * cos(TAU * (c * t + d));
+  }
+
+  vec3 palette2(float t, float shift) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(2.0, 1.0, 0.0);
+    vec3 d = vec3(0.50 + shift * 0.08, 0.20 - shift * 0.03, 0.25 + shift * 0.06);
+    return a + b * cos(TAU * (c * t + d));
+  }
+
+  void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    vec2 p = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+
+    float t = u_time;
+    float ponder = u_ponder;
+    float intensity = u_intensity;
+    float pulse = u_pulse;
+
+    // Mouse influence
+    vec2 mouse = (u_mouse - 0.5) * 2.0;
+    vec2 toMouse = p - mouse * 0.3;
+
+    // ── The Orb ──
+    float orbRadius = 0.35 + 0.03 * sin(t * 0.7) + pulse * 0.08;
+    orbRadius += ponder * 0.05;
+    float dist = length(p);
+    float orbDist = dist - orbRadius;
+
+    // Orb interior - layered psychedelic noise
+    float angle = atan(p.y, p.x);
+    float r = length(p);
+
+    // Swirling distortion that increases with pondering
+    float swirl = ponder * 2.0 + intensity * 3.0;
+    vec2 distorted = p;
+    distorted.x += sin(p.y * 5.0 + t * 0.5) * 0.05 * (1.0 + ponder);
+    distorted.y += cos(p.x * 5.0 + t * 0.4) * 0.05 * (1.0 + ponder);
+
+    // Layer 1: Deep flowing patterns
+    float n1 = fbm(distorted * 3.0 + t * 0.15 + ponder * 0.5);
+    // Layer 2: Faster, smaller details
+    float n2 = fbm(distorted * 6.0 - t * 0.25 + vec2(n1 * 0.5));
+    // Layer 3: Ponder-reactive layer
+    float n3 = fbm(distorted * (2.0 + ponder * 4.0) + vec2(sin(t * 0.3), cos(t * 0.2)) + n2 * 0.3);
+    // Layer 4: Deep ponder fractals
+    float n4 = fbm(distorted * (8.0 + ponder * 6.0) + t * 0.1 - vec2(n1 + n3) * 0.2);
+
+    // Combine layers with ponder-dependent mixing
+    float combined = n1 * 0.4 + n2 * 0.3 + n3 * (0.2 + ponder * 0.3) + n4 * ponder * 0.3;
+
+    // Color generation
+    float shift = u_colorShift;
+    vec3 col1 = palette(combined * 0.5 + t * 0.05 + ponder * 0.2, shift);
+    vec3 col2 = palette2(n2 * 0.7 - t * 0.08 + n3 * 0.3, shift * 1.3);
+    vec3 col3 = palette(n4 * 0.6 + t * 0.03 + ponder * 0.5, shift * 0.7 + 1.0);
+
+    // Mix colors based on position and ponder depth
+    float mixFactor = smoothstep(-0.3, 0.3, sin(angle * 3.0 + t * 0.5 + n1 * TAU));
+    float mixFactor2 = smoothstep(-0.2, 0.2, cos(r * 8.0 - t * 0.7 + n2 * PI));
+    vec3 orbColor = mix(col1, col2, mixFactor);
+    orbColor = mix(orbColor, col3, mixFactor2 * (0.3 + ponder * 0.4));
+
+    // Add bright caustic-like highlights
+    float caustic = pow(abs(sin(n1 * PI * 2.0 + t * 0.5)), 8.0);
+    caustic += pow(abs(sin(n3 * PI * 3.0 - t * 0.3)), 12.0) * ponder;
+    orbColor += caustic * vec3(0.4, 0.2, 0.6) * (0.3 + intensity * 0.5);
+
+    // Energy veins when pondering deeply
+    if (ponder > 0.3) {
+      float veinIntensity = (ponder - 0.3) / 0.7;
+      float veins = abs(sin(angle * 8.0 + n1 * 5.0 + t * 2.0));
+      veins = pow(veins, 20.0);
+      float veins2 = abs(sin(r * 15.0 + n2 * 4.0 - t * 1.5));
+      veins2 = pow(veins2, 15.0);
+      vec3 veinColor = vec3(0.8, 0.4, 1.0) + vec3(0.2, 0.6, -0.4) * sin(t * 0.5 + shift);
+      orbColor += (veins + veins2) * veinColor * veinIntensity * 0.8;
+    }
+
+    // Orb edge glow
+    float edgeFade = smoothstep(orbRadius, orbRadius - 0.15, dist);
+    float edgeGlow = smoothstep(orbRadius + 0.02, orbRadius - 0.05, dist) -
+                     smoothstep(orbRadius - 0.05, orbRadius - 0.15, dist);
+    vec3 glowColor = palette(t * 0.1 + ponder, shift) * (1.5 + pulse * 2.0);
+
+    // ── Background ──
+    // Subtle space-like background with distant nebula
+    float bgNoise = fbm(uv * 2.0 + t * 0.02);
+    float bgNoise2 = fbm(uv * 5.0 - t * 0.03 + 10.0);
+    vec3 bgColor = vec3(0.01, 0.0, 0.03);
+
+    // Nebula glow around orb
+    float nebulaR = length(p) - orbRadius;
+    float nebula = exp(-nebulaR * 2.5) * (0.5 + ponder * 0.8);
+    vec3 nebulaColor = palette(bgNoise * 0.3 + t * 0.02, shift) * 0.3;
+    bgColor += nebulaColor * nebula;
+
+    // Distant stars
+    float stars = pow(abs(snoise(uv * 80.0)), 20.0) * 0.8;
+    stars += pow(abs(snoise(uv * 120.0 + 5.0)), 25.0) * 0.5;
+    bgColor += stars * vec3(0.8, 0.8, 1.0);
+
+    // Particle ring when deep pondering
+    if (ponder > 0.5) {
+      float ringDist = abs(dist - orbRadius - 0.1 - 0.05 * sin(t * 0.8));
+      float ring = exp(-ringDist * 30.0) * (ponder - 0.5) * 2.0;
+      float ringPattern = sin(angle * 20.0 + t * 3.0) * 0.5 + 0.5;
+      ringPattern *= sin(angle * 7.0 - t * 2.0) * 0.5 + 0.5;
+      bgColor += ring * ringPattern * palette(angle / TAU + t * 0.1, shift) * 1.5;
+    }
+
+    // ── Final Composite ──
+    vec3 finalColor = bgColor;
+
+    // Inside orb
+    if (orbDist < 0.0) {
+      float innerFade = smoothstep(0.0, -0.05, orbDist);
+      finalColor = mix(finalColor + glowColor * edgeGlow * 2.0, orbColor * edgeFade, innerFade);
+      // Inner specular highlight
+      vec2 lightDir = normalize(vec2(0.3, 0.5) + mouse * 0.2);
+      float spec = pow(max(dot(normalize(p), lightDir), 0.0), 16.0);
+      finalColor += spec * vec3(0.5, 0.3, 0.8) * (0.3 + pulse * 0.5);
+    } else {
+      // Outer glow
+      float outerGlow = exp(-orbDist * 8.0) * (0.6 + intensity * 0.8 + pulse * 1.5);
+      finalColor += glowColor * outerGlow * 0.5;
+    }
+
+    // Mouse proximity glow
+    float mouseDist = length(p - mouse * vec2(u_resolution.x / u_resolution.y, 1.0) * 0.5);
+    // Skip - the cursor glow CSS handles this
+
+    // Vignette
+    float vignette = 1.0 - dot(uv - 0.5, uv - 0.5) * 1.5;
+    finalColor *= vignette;
+
+    // Slight bloom
+    finalColor += finalColor * finalColor * 0.15;
+
+    // Tone mapping
+    finalColor = finalColor / (finalColor + vec3(1.0));
+    finalColor = pow(finalColor, vec3(0.9));
+
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+`;
+
+// ── WebGL Setup ──
+function createShader(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('Shader error:', gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+const vs = createShader(gl.VERTEX_SHADER, vertexSrc);
+const fs = createShader(gl.FRAGMENT_SHADER, fragmentSrc);
+
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+gl.useProgram(program);
+
+// Full-screen quad
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+  -1, -1,  1, -1,  -1, 1,
+  -1,  1,  1, -1,   1, 1
+]), gl.STATIC_DRAW);
+
+const aPos = gl.getAttribLocation(program, 'a_position');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniforms
+const uniforms = {
+  time: gl.getUniformLocation(program, 'u_time'),
+  resolution: gl.getUniformLocation(program, 'u_resolution'),
+  mouse: gl.getUniformLocation(program, 'u_mouse'),
+  ponder: gl.getUniformLocation(program, 'u_ponder'),
+  intensity: gl.getUniformLocation(program, 'u_intensity'),
+  pulse: gl.getUniformLocation(program, 'u_pulse'),
+  colorShift: gl.getUniformLocation(program, 'u_colorShift'),
+};
+
+// ── Resize ──
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Mouse / Touch ──
+const cursorGlow = document.getElementById('cursor-glow');
+
+function updateMouse(x, y) {
+  state.mouseX = x / window.innerWidth;
+  state.mouseY = 1.0 - y / window.innerHeight;
+  cursorGlow.style.left = x + 'px';
+  cursorGlow.style.top = y + 'px';
+}
+
+window.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  updateMouse(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+
+// ── Pondering ──
+const wisdomText = document.getElementById('wisdom-text');
+const depthValue = document.getElementById('depth-value');
+const ponderPrompt = document.getElementById('ponder-prompt');
+let ponderTimer = null;
+let wisdomTimeout = null;
+
+function getOrbCenter() {
+  return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+}
+
+function isOnOrb(x, y) {
+  const center = getOrbCenter();
+  const orbPixelRadius = Math.min(window.innerWidth, window.innerHeight) * 0.35;
+  const dx = x - center.x;
+  const dy = y - center.y;
+  return Math.sqrt(dx * dx + dy * dy) < orbPixelRadius;
+}
+
+function startPonder(x, y) {
+  if (!isOnOrb(x, y)) return;
+  state.clicking = true;
+  state.pondering = true;
+  ponderPrompt.style.display = 'none';
+  cursorGlow.style.width = '80px';
+  cursorGlow.style.height = '80px';
+  cursorGlow.style.background = 'radial-gradient(circle, rgba(220,160,255,0.6) 0%, transparent 70%)';
+}
+
+function stopPonder() {
+  state.clicking = false;
+  cursorGlow.style.width = '40px';
+  cursorGlow.style.height = '40px';
+  cursorGlow.style.background = 'radial-gradient(circle, rgba(200,150,255,0.4) 0%, transparent 70%)';
+
+  if (state.pondering && state.ponderLevel > 0.15) {
+    showWisdom();
+    state.orbPulse = 1.0;
+    spawnParticles();
+  }
+}
+
+function showWisdom() {
+  // Pick a wisdom we haven't shown recently
+  let idx;
+  do {
+    idx = Math.floor(Math.random() * wisdoms.length);
+  } while (idx === state.lastWisdom);
+  state.lastWisdom = idx;
+
+  wisdomText.textContent = wisdoms[idx];
+  wisdomText.classList.add('visible');
+
+  clearTimeout(wisdomTimeout);
+  wisdomTimeout = setTimeout(() => {
+    wisdomText.classList.remove('visible');
+  }, 5000 + state.ponderLevel * 3000);
+}
+
+// ── Particles ──
+function spawnParticles() {
+  const center = getOrbCenter();
+  const count = 15 + Math.floor(state.ponderLevel * 30);
+
+  for (let i = 0; i < count; i++) {
+    const particle = document.createElement('div');
+    particle.className = 'particle-burst';
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const speed = 80 + Math.random() * 200 + state.ponderLevel * 100;
+    const hue = (state.colorShift * 60 + i * (360 / count)) % 360;
+    const size = 2 + Math.random() * 4;
+
+    particle.style.width = size + 'px';
+    particle.style.height = size + 'px';
+    particle.style.left = center.x + 'px';
+    particle.style.top = center.y + 'px';
+    particle.style.background = `hsl(${hue}, 80%, 70%)`;
+    particle.style.boxShadow = `0 0 ${size * 2}px hsl(${hue}, 80%, 60%)`;
+    document.body.appendChild(particle);
+
+    const destX = center.x + Math.cos(angle) * speed;
+    const destY = center.y + Math.sin(angle) * speed;
+    const duration = 800 + Math.random() * 1200;
+
+    particle.animate([
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+      {
+        transform: `translate(${destX - center.x - size/2}px, ${destY - center.y - size/2}px) scale(0)`,
+        opacity: 0
+      }
+    ], { duration, easing: 'cubic-bezier(0, 0.5, 0.5, 1)' });
+
+    setTimeout(() => particle.remove(), duration);
+  }
+}
+
+// Event listeners
+window.addEventListener('mousedown', e => startPonder(e.clientX, e.clientY));
+window.addEventListener('mouseup', stopPonder);
+window.addEventListener('touchstart', e => {
+  updateMouse(e.touches[0].clientX, e.touches[0].clientY);
+  startPonder(e.touches[0].clientX, e.touches[0].clientY);
+});
+window.addEventListener('touchend', stopPonder);
+
+// Keyboard pondering (spacebar)
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    const center = getOrbCenter();
+    startPonder(center.x, center.y);
+  }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space') {
+    stopPonder();
+  }
+});
+
+// ── Audio Context for Ambient Hum ──
+let audioCtx = null;
+let oscillators = [];
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  const freqs = [63, 126, 189, 252];
+  const gains = [0.04, 0.02, 0.01, 0.005];
+
+  freqs.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.value = 0;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    oscillators.push({ osc, gain, baseFreq: freq, baseGain: gains[i] });
+  });
+}
+
+function updateAudio() {
+  if (!audioCtx || oscillators.length === 0) return;
+  const ponder = state.ponderLevel;
+  oscillators.forEach(({ osc, gain, baseFreq, baseGain }) => {
+    const targetGain = baseGain * (0.2 + ponder * 0.8);
+    gain.gain.value += (targetGain - gain.gain.value) * 0.05;
+    osc.frequency.value = baseFreq * (1 + ponder * 0.1 + Math.sin(state.time * 0.3) * 0.02);
+  });
+}
+
+// Init audio on first interaction
+window.addEventListener('mousedown', initAudio, { once: true });
+window.addEventListener('touchstart', initAudio, { once: true });
+window.addEventListener('keydown', initAudio, { once: true });
+
+// ── Animation Loop ──
+let lastTime = performance.now();
+
+function animate(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  state.time += dt;
+
+  // Ponder level: ramps up while clicking, decays slowly
+  if (state.clicking) {
+    state.ponderLevel = Math.min(1.0, state.ponderLevel + dt * 0.25);
+    state.intensity = Math.min(1.0, state.intensity + dt * 0.4);
+  } else {
+    state.ponderLevel = Math.max(0.0, state.ponderLevel - dt * 0.08);
+    state.intensity *= Math.pow(0.3, dt);
+  }
+
+  // Ponder depth accumulates over time (never resets)
+  if (state.pondering) {
+    state.ponderDepth += dt * state.ponderLevel * 0.5;
+  }
+
+  // Orb pulse decay
+  state.orbPulse *= Math.pow(0.1, dt);
+
+  // Color shift drifts continuously
+  state.colorShift += dt * 0.15 + state.ponderLevel * dt * 0.3;
+
+  // Update depth display
+  depthValue.textContent = state.ponderDepth.toFixed(2);
+
+  // Update audio
+  updateAudio();
+
+  // Render
+  const dpr = window.devicePixelRatio || 1;
+  gl.uniform1f(uniforms.time, state.time);
+  gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
+  gl.uniform2f(uniforms.mouse, state.mouseX, state.mouseY);
+  gl.uniform1f(uniforms.ponder, state.ponderLevel);
+  gl.uniform1f(uniforms.intensity, state.intensity);
+  gl.uniform1f(uniforms.pulse, state.orbPulse);
+  gl.uniform1f(uniforms.colorShift, state.colorShift);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
