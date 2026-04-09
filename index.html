@@ -589,7 +589,7 @@ const wisdomText = document.getElementById('wisdom-text');
 const depthValue = document.getElementById('depth-value');
 const ponderPrompt = document.getElementById('ponder-prompt');
 let ponderTimer = null;
-let wisdomTimeout = null;
+
 
 function getOrbCenter() {
   return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -608,6 +608,7 @@ function startPonder(x, y) {
   state.clicking = true;
   state.pondering = true;
   ponderPrompt.style.display = 'none';
+  wisdomText.classList.remove('visible');
   cursorGlow.style.width = '80px';
   cursorGlow.style.height = '80px';
   cursorGlow.style.background = 'radial-gradient(circle, rgba(220,160,255,0.6) 0%, transparent 70%)';
@@ -636,11 +637,6 @@ function showWisdom() {
 
   wisdomText.textContent = wisdoms[idx];
   wisdomText.classList.add('visible');
-
-  clearTimeout(wisdomTimeout);
-  wisdomTimeout = setTimeout(() => {
-    wisdomText.classList.remove('visible');
-  }, 5000 + state.ponderLevel * 3000);
 }
 
 // ── Particles ──
